@@ -20,6 +20,7 @@ export default appSchema({
         { name: "to", type: "string" },
         { name: "audience", type: "string" }, // CHAT | GROUP
         { name: "type", type: "string" }, // PLAIN | IMG | VIDEO
+        { name: "media", type: "string" },
         { name: "status", type: "string" }, // PENDING | SENT | RECEIVED
         { name: "markdown_text", type: "string" },
         { name: "message_at", type: "number" },

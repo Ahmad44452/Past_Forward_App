@@ -9,6 +9,7 @@ export default class Message extends Model {
   @text("to") to;
   @text("audience") audience; // CHAT | GROUP
   @text("type") type; // PLAIN | IMG | VIDEO
+  @text("media") media;
   @text("markdown_text") markdownText;
   @text("status") status; // PENDING | SENT | RECEIVED
   @date("message_at") messageAt;

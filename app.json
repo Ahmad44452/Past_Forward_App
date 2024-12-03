@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "app",
+    "name": "Past Forward",
     "slug": "app",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -48,6 +48,7 @@
         "expo-build-properties",
         {
           "android": {
+            "usesCleartextTraffic": true,
             "packagingOptions": {
               "pickFirst": ["**/libc++_shared.so"]
             }

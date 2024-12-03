@@ -47,11 +47,13 @@ const Page = () => {
     setIsLoading(true);
     try {
       if (requestType === LOGIN_KEYWORD) {
+        console.log(`Making request to: ${BACKEND_URI}/api/user/login`);
         await axios.post(`${BACKEND_URI}/api/user/login`, {
           username,
           password,
         });
       } else {
+        console.log(`Making request to: ${BACKEND_URI}/api/user/`);
         await axios.post(`${BACKEND_URI}/api/user/`, {
           username,
           password,
@@ -67,6 +69,8 @@ const Page = () => {
       });
       router.replace("/(tabs)/chats");
     } catch (err) {
+      console.log(err);
+      console.log(err.message);
       let toastError;
       if (err?.request?.response) {
         toastError = JSON.parse(err?.request?.response).message;

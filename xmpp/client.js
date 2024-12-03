@@ -7,6 +7,7 @@ import { randomUUID } from "expo-crypto";
 import queue from "react-native-job-queue";
 import { Worker } from "react-native-job-queue";
 import parse from "@xmpp/xml/lib/parse";
+import { saveBase64File } from "../fileSystem/saveBase64File";
 
 queue.configure({
   concurrency: 1,
@@ -46,14 +47,37 @@ queue.addWorker(
             messageSender = messageSender[0];
           }
 
+          let fileInfo = {
+            isFile: false,
+            type: null,
+            filePath: "",
+            base64: "",
+            extension: "",
+          };
+
+          if (stanza.getChildText("image")) {
+            const receivedFile = JSON.parse(stanza.getChildText("image"));
+            fileInfo.isFile = true;
+            fileInfo.type = "image";
+            fileInfo.filePath = await saveBase64File(receivedFile.base64, receivedFile.extension);
+          } else if (stanza.getChildText("video")) {
+            const receivedFile = JSON.parse(stanza.getChildText("video"));
+            fileInfo.isFile = true;
+            fileInfo.type = "video";
+            fileInfo.filePath = await saveBase64File(receivedFile.base64, receivedFile.extension);
+          }
+
           await database.write(async () => {
             senderDb = await database.get("messages").create((message) => {
               message._raw.id = stanza.attrs.id;
               message.from = stanza.attrs.from;
               message.to = stanza.attrs.to;
               message.audience = "CHAT"; // CHAT | GROUP
-              message.type = "PLAIN"; // PLAIN | IMG | VIDEO
-              message.markdownText = stanza.getChildText("body");
+              message.type = fileInfo.type || "PLAIN"; // PLAIN | IMG | VIDEO
+              if (fileInfo.isFile) {
+                message.media = fileInfo.filePath;
+              }
+              message.markdownText = stanza.getChildText("body") || "";
               message.status = "RECEIVED"; // PENDING | SENT | RECEIVED
               message.isRead = false;
               message.messageAt = new Date();

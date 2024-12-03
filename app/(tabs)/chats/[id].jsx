@@ -3,7 +3,16 @@ import ReplyMessageBar from "@/components/ReplyMessageBar";
 import Colors from "@/constants/Colors";
 import { Ionicons } from "@expo/vector-icons";
 import React, { useState, useCallback, useEffect, useRef } from "react";
-import { ImageBackground, StyleSheet, TouchableOpacity, View, Modal, Text } from "react-native";
+import {
+  ImageBackground,
+  StyleSheet,
+  TouchableOpacity,
+  View,
+  Modal,
+  Text,
+  Image,
+  ActivityIndicator,
+} from "react-native";
 import { xml } from "@xmpp/client";
 import * as SecureStore from "expo-secure-store";
 import {
@@ -43,9 +52,10 @@ const Page = ({ contact, name, username }) => {
     username: "",
     name: "",
   });
+  const [selectedMedia, setSelectedMedia] = useState(null);
 
-  const mapMessageToGiftedChat = useCallback(
-    (message) => ({
+  const mapMessageToGiftedChat = useCallback((message) => {
+    const msg = {
       _id: message.id,
       text: message.markdownText,
       createdAt: new Date(message.messageAt),
@@ -56,24 +66,26 @@ const Page = ({ contact, name, username }) => {
       pending: message.status === "PENDING",
       sent: message.status === "SENT" || message.status === "RECEIVED",
       received: message.status === "RECEIVED",
-    }),
-    []
-  );
+    };
+    if (message.type === "video") {
+      msg.video = message.media;
+    } else if (message.type === "image") {
+      msg.image = message.media;
+    }
+    return msg;
+  }, []);
 
   const pickMedia = async () => {
-    // No permissions request is necessary for launching the image library
     let result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.All,
-      // allowsEditing: true,
-      // aspect: [4, 3],
       quality: 1,
+      base64: true,
     });
 
-    console.log(result);
-
-    //  if (!result.canceled) {
-    //    setImage(result.assets[0].uri);
-    //  }
+    if (!result.canceled) {
+      console.log(result);
+      setSelectedMedia(result.assets[0]);
+    }
   };
 
   const handleUserMessage = useCallback(function ({ type, msg }) {
@@ -117,16 +129,6 @@ const Page = ({ contact, name, username }) => {
           ])
         );
       }
-      // setMessages((previousMessages) => {
-      //   previousMessages.push(
-      //     mapMessageToGiftedChat({
-      //       ...msg,
-      //       messageAt: new Date(),
-      //     })
-      //   );
-
-      //   return previousMessages;
-      // });
     }
   });
 
@@ -226,39 +228,82 @@ const Page = ({ contact, name, username }) => {
       } else {
         for (const msg of messages) {
           msg.pending = true;
+          if (selectedMedia) {
+            if (selectedMedia.type === "image") {
+              msg.image = selectedMedia.uri;
+            } else if (selectedMedia.type === "video") {
+              msg.video = selectedMedia.uri;
+            }
+          }
           let dbMessage;
-          database
-            .write(async () => {
-              dbMessage = await database.get("messages").create((message) => {
-                message._raw.id = msg._id;
-                message.from = msg.user._id;
-                message.to = username;
-                message.audience = "CHAT"; // CHAT | GROUP
-                message.type = "PLAIN"; // PLAIN | IMG | VIDEO
-                message.markdownText = msg.text;
-                message.status = "PENDING"; // PENDING | SENT | RECEIVED
-                message.messageAt = new Date();
-                message.isRead = true;
-                message.isScheduled = false;
-              });
-            })
-            .then(() => {
-              const message = xml(
+          await database.write(async () => {
+            dbMessage = await database.get("messages").create((message) => {
+              message._raw.id = msg._id;
+              message.from = msg.user._id;
+              message.to = username;
+              message.audience = "CHAT"; // CHAT | GROUP
+              message.type = selectedMedia ? selectedMedia.type : "PLAIN"; // PLAIN | IMG | VIDEO
+              if (selectedMedia) {
+                message.media = selectedMedia.uri;
+              }
+              message.markdownText = msg.text || "";
+              message.status = "PENDING"; // PENDING | SENT | RECEIVED
+              message.messageAt = new Date();
+              message.isRead = true;
+              message.isScheduled = false;
+            });
+          });
+
+          let message;
+
+          if (selectedMedia) {
+            if (selectedMedia.type === "image") {
+              message = xml(
                 "message",
                 { type: "chat", to: username, id: dbMessage.id },
-                xml("body", {}, msg.text)
+                xml("body", {}, msg.text),
+                xml(
+                  "image",
+                  {},
+                  JSON.stringify({
+                    extension: selectedMedia.fileName.split(".")[1],
+                    base64: selectedMedia.base64,
+                  })
+                )
               );
-              XmppClient.client.send(message).then(() => {
-                updateMessage(dbMessage, "SENT");
-              });
-            });
-          // msg._id = dbMessage.id;
+            } else if (selectedMedia.type === "video") {
+              message = xml(
+                "message",
+                { type: "chat", to: username, id: dbMessage.id },
+                xml("body", {}, msg.text),
+                xml(
+                  "video",
+                  {},
+                  JSON.stringify({
+                    extension: selectedMedia.fileName.split(".")[1],
+                    base64: selectedMedia.base64,
+                  })
+                )
+              );
+            }
+          } else {
+            message = xml(
+              "message",
+              { type: "chat", to: username, id: dbMessage.id },
+              xml("body", {}, msg.text)
+            );
+          }
+
+          XmppClient.client.send(message).then(() => {
+            updateMessage(dbMessage, "SENT");
+          });
         }
         setMessages((previousMessages) => GiftedChat.append(previousMessages, messages));
+        setSelectedMedia(null);
       }
       return;
     },
-    [date]
+    [date, selectedMedia]
   );
 
   //   const renderInputToolbar = (props) => {
@@ -400,7 +445,7 @@ const Page = ({ contact, name, username }) => {
               paddingHorizontal: 14,
             }}
           >
-            {text === "" ? (
+            {text === "" && selectedMedia === null ? (
               <>
                 <Ionicons
                   name="camera-outline"
@@ -411,7 +456,7 @@ const Page = ({ contact, name, username }) => {
                 <Ionicons name="mic-outline" color={Colors.primary} size={28} />
               </>
             ) : null}
-            {text !== "" ? (
+            {text !== "" || selectedMedia !== null ? (
               <>
                 <TouchableOpacity
                   onPress={() => {
@@ -434,7 +479,9 @@ const Page = ({ contact, name, username }) => {
                     justifyContent: "center",
                   }}
                 >
-                  <Ionicons name="send" color={Colors.primary} size={28} />
+                  <View style={styles.sendButton}>
+                    <Ionicons name="send" color={Colors.primary} size={28} />
+                  </View>
                 </Send>
               </>
             ) : null}
@@ -449,7 +496,19 @@ const Page = ({ contact, name, username }) => {
           );
         }}
         renderChatFooter={() => (
-          <ReplyMessageBar clearReply={() => setReplyMessage(null)} message={replyMessage} />
+          <>
+            {selectedMedia && (
+              <View style={styles.selectedMediaContainer}>
+                <Image source={{ uri: selectedMedia.uri }} style={styles.selectedMediaPreview} />
+                <TouchableOpacity
+                  onPress={() => setSelectedMedia(null)}
+                  style={styles.removeMediaButton}
+                >
+                  <Ionicons name="close-circle" size={24} color={Colors.primary} />
+                </TouchableOpacity>
+              </View>
+            )}
+          </>
         )}
         onLongPress={(context, message) => setReplyMessage(message)}
         renderMessage={(props) => (
@@ -490,5 +549,37 @@ const styles = StyleSheet.create({
     paddingTop: 8,
     fontSize: 16,
     marginVertical: 4,
+  },
+  background: {
+    flex: 1,
+    backgroundColor: Colors.background,
+  },
+  inputToolbar: {
+    backgroundColor: "#fff",
+    borderTopWidth: 1,
+    borderTopColor: Colors.lightGray,
+  },
+  attachButton: {
+    paddingHorizontal: 10,
+    justifyContent: "center",
+  },
+  sendButton: {
+    marginRight: 10,
+    marginBottom: 5,
+  },
+  selectedMediaContainer: {
+    height: 100,
+    padding: 10,
+    backgroundColor: "#f0f0f0",
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  selectedMediaPreview: {
+    width: 80,
+    height: 80,
+    borderRadius: 10,
+  },
+  removeMediaButton: {
+    marginLeft: 10,
   },
 });
